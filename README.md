@@ -1,8 +1,8 @@
 # Dirigera MQTT Bridge
 
-Verbindet den **IKEA DIRIGERA Hub** mit einem **MQTT Broker**.
+Liefert Daten aus dem **IKEA DIRIGERA Hub** an einen **MQTT Broker**.
 
-Für alle die ihre IKEA Smart Home Geräte in eigene Systeme integrieren wollen - ohne Home Assistant.
+Funktioniert mit dem aktuellen IKEA Smart Home System (Matter-basiert, seit 2024).
 
 ```
 ┌──────────────┐      WebSocket       ┌──────────────────┐      MQTT       ┌──────────────┐
@@ -35,13 +35,15 @@ Für alle die ihre IKEA Smart Home Geräte in eigene Systeme integrieren wollen 
 
 | Gerätetyp | MQTT Topic | Messwerte |
 |-----------|------------|-----------|
-| Umweltsensor (VINDSTYRKA) | `dirigera/sensor/{id}` | temperature, humidity, pm25, co2, voc_index |
-| Bewegungsmelder (VALLHORN) | `dirigera/motion/{id}` | is_detected, battery_percentage |
-| Tür-/Fenstersensor (PARASOLL) | `dirigera/door/{id}` | is_open, battery_percentage |
-| Lampen (TRÅDFRI etc.) | `dirigera/light/{id}` | is_on, brightness, color_temperature, color_hue/sat |
+| Umweltsensor (ALPSTUGA) | `dirigera/sensor/{id}` | temperature, humidity, pm25, co2, voc_index |
+| Bewegungsmelder (MYGGSPRAY) | `dirigera/motion/{id}` | is_detected, battery_percentage |
+| Tür-/Fenstersensor (MYGGBETT) | `dirigera/door/{id}` | is_open, battery_percentage |
+| Lampen (KAJPLATS) | `dirigera/light/{id}` | is_on, brightness, color_temperature, color_hue/sat |
 | Luftreiniger (STARKVIND) | `dirigera/purifier/{id}` | fan_mode, motor_state, pm25, filter_alarm |
-| Steckdosen (INSPELNING) | `dirigera/outlet/{id}` | is_on, power, current, voltage, energy_total |
-| Fernbedienungen | `dirigera/controller/{id}` | battery_percentage, is_on |
+| Steckdosen (TRÅDFRI) | `dirigera/outlet/{id}` | is_on, power, current, voltage, energy_total |
+| Fernbedienungen (TRÅDFRI, BILRESA) | `dirigera/controller/{id}` | battery_percentage, is_on |
+
+Andere Geräte funktionieren vermutlich auch. Matter-Geräte anderer Hersteller werden ebenfalls unterstützt, sofern sie am Dirigera Hub angemeldet sind.
 
 ## Installation
 
@@ -64,13 +66,13 @@ cd dirigera-mqtt-bridge
 cp .env.example .env
 # .env bearbeiten: DIRIGERA_IP und DIRIGERA_TOKEN eintragen
 
-docker compose up -d
+docker-compose up -d
 ```
 
 ### 3. Logs prüfen
 
 ```bash
-docker compose logs -f
+docker logs dirigera-bridge -f -n 20
 ```
 
 ## Konfiguration
@@ -308,22 +310,10 @@ mosquitto_sub -h localhost -t 'dirigera/sensor/#' -v
 ### Bridge Logs
 
 ```bash
-# Normal
-docker compose logs -f dirigera-bridge
-
-# Debug-Modus
-LOG_LEVEL=DEBUG docker compose up
+docker logs dirigera-bridge -f -n 50
 ```
 
----
-
-## Unterschied zu anderen Lösungen
-
-| Lösung | Beschreibung |
-|--------|--------------|
-| **Home Assistant Dirigera Integration** | Voll integriert in HA, braucht aber HA |
-| **Diese Bridge** | Standalone, reines MQTT, für eigene Stacks |
-| **Node-RED Dirigera Nodes** | Grafisch, aber mehr Overhead |
+Für Debug-Modus: `LOG_LEVEL=DEBUG` in `.env` setzen und Container neu starten.
 
 ---
 
