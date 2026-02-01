@@ -31,11 +31,33 @@ Funktioniert mit dem aktuellen IKEA Smart Home System (Matter-basiert, seit 2024
 
 > **Hinweis:** Diese Bridge ist aktuell **nur lesend** - Gerätedaten werden nach MQTT publiziert, Steuerung (Lampen schalten, etc.) ist nicht implementiert.
 
+### Funktionsweise im Detail
+
+**WebSocket vs. Polling:**
+
+Der Dirigera Hub liefert Echtzeit-Updates per WebSocket, aber diese enthalten nur geänderte Attribute (z.B. nur `temperature`, nicht den Raumnamen). Deshalb:
+
+1. **Initiales Polling** beim Start: Alle Geräte werden abgefragt und in einen Cache geladen (inkl. Metadaten wie `device_name`, `room`, `device_type`)
+2. **WebSocket Events** liefern Änderungen in Echtzeit, werden mit Cache-Daten angereichert und sofort nach MQTT gepusht
+3. **Periodisches Polling** (alle 5 Min) sendet nur dann nach MQTT, wenn für das Gerät seit dem letzten Poll kein WebSocket-Update kam
+
+**Welche Geräte senden WebSocket Events?**
+
+- **Umweltsensoren:** Senden alle paar Sekunden Updates (Temperatur, Luftqualität ändern sich ständig). ALPSTUGA hat CO2, VINDSTYRKA hat VOC statt CO2.
+- **Bewegungsmelder, Tür-/Fenstersensoren:** Senden bei Zustandsänderung (Bewegung erkannt, Tür geöffnet)
+- **Lampen:** Senden bei Ein/Aus, Helligkeitsänderung
+- **Luftreiniger:** Senden bei Modusänderung, Filterstatus
+- **Fernbedienungen, Steckdosen:** Senden selten oder nie WebSocket-Updates → werden primär über Polling erfasst
+
+**Deduplizierung:**
+
+Wenn ein Gerät innerhalb von 5 Sekunden mehrfach identische Werte sendet, wird nur das erste Update nach MQTT gepusht.
+
 ## Unterstützte Geräte
 
 | Gerätetyp | MQTT Topic | Messwerte |
 |-----------|------------|-----------|
-| Umweltsensor (ALPSTUGA) | `dirigera/sensor/{id}` | temperature, humidity, pm25, co2, voc_index |
+| Umweltsensor (ALPSTUGA, VINDSTYRKA) | `dirigera/sensor/{id}` | temperature, humidity, pm25, co2 (ALPSTUGA) oder voc_index (VINDSTYRKA) |
 | Bewegungsmelder (MYGGSPRAY) | `dirigera/motion/{id}` | is_detected, battery_percentage |
 | Tür-/Fenstersensor (MYGGBETT) | `dirigera/door/{id}` | is_open, battery_percentage |
 | Lampen (KAJPLATS) | `dirigera/light/{id}` | is_on, brightness, color_temperature, color_hue/sat |
