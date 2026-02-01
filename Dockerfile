@@ -10,9 +10,9 @@ RUN pip install --no-cache-dir \
 
 COPY bridge.py /app/bridge.py
 
-# Health Check
+# Health Check (prüft ob Hauptprozess läuft)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-    CMD pgrep -f "python.*bridge.py" || exit 1
+    CMD cat /proc/1/cmdline | grep -q python || exit 1
 
 # Nicht als root
 RUN useradd -m -u 1000 bridge
