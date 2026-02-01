@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  dirigera-bridge:
+    build: .
+    container_name: dirigera-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - DIRIGERA_TOKEN=${DIRIGERA_TOKEN}
+      - DIRIGERA_IP=${DIRIGERA_IP:-192.168.0.1}
+      - MQTT_HOST=${MQTT_HOST:-localhost}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_BASE_TOPIC=${MQTT_BASE_TOPIC:-dirigera}
+      - POLL_INTERVAL=${POLL_INTERVAL:-300}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
