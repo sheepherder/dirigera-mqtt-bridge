@@ -58,7 +58,7 @@ Dann den Pairing-Knopf am Dirigera Hub drücken (unten am Gerät).
 ### 2. Docker Compose
 
 ```bash
-git clone https://github.com/DEIN_USER/dirigera-mqtt-bridge.git
+git clone https://github.com/sheepherder/dirigera-mqtt-bridge.git
 cd dirigera-mqtt-bridge
 
 cp .env.example .env
@@ -330,6 +330,3 @@ LOG_LEVEL=DEBUG docker compose up
 ## Lizenz
 
 MIT License - siehe [LICENSE](LICENSE)
-
----
-
