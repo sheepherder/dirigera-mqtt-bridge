@@ -339,6 +339,37 @@ Für Debug-Modus: `LOG_LEVEL=DEBUG` in `.env` setzen und Container neu starten.
 
 ---
 
+## ALPSTUGA Display-Steuerung
+
+Das Display der ALPSTUGA Luftqualitätssensoren kann per Kommandozeile ein- und ausgeschaltet werden. Im DIRIGERA Hub hat der Sensor ein steuerbares `isOn`-Attribut (Matter OnOff-Cluster mit DeadFrontBehavior), das das Display kontrolliert.
+
+### Nutzung (vom Host)
+
+```bash
+# Alle ALPSTUGAs auflisten
+./alpstuga-display.sh list
+
+# Display-Status anzeigen
+./alpstuga-display.sh status
+
+# Display ein-/ausschalten
+./alpstuga-display.sh on
+./alpstuga-display.sh off
+
+# Umschalten (toggle)
+./alpstuga-display.sh toggle
+
+# Bestimmtes Gerät wählen (nach Name oder Raum)
+./alpstuga-display.sh off --name "Schlafzimmer"
+./alpstuga-display.sh on -n Küche
+```
+
+Bei mehreren ALPSTUGAs wird ohne `--name` interaktiv eine nummerierte Liste angezeigt. Bei nur einem Gerät wird es automatisch gewählt.
+
+> **Hinweis:** Der Container `dirigera-bridge` muss laufen. Das Script wird per `docker exec` im Container ausgeführt.
+
+---
+
 ## Lizenz
 
 MIT License - siehe [LICENSE](LICENSE)
