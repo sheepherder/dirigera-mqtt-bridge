@@ -142,8 +142,34 @@ def should_poll_send(device_id: str, new_data: Dict) -> bool:
     return True
 
 
+def is_environment_sensor_warmup(data: Dict) -> bool:
+    """
+    Erkennt Warmup-Artefakte von Umweltsensoren (ALPSTUGA/VINDSTYRKA).
+    Nach Neustart liefern die Sensirion SEN5x Sensoren 0-Werte zurück,
+    bis sie aufgewärmt sind (~60 Sekunden).
+    CO2=0 ppm und Luftfeuchtigkeit=0% sind physikalisch unmöglich in Innenräumen.
+    """
+    if data.get("device_type") != "environment_sensor":
+        return False
+
+    co2 = data.get("co2")
+    humidity = data.get("humidity")
+
+    if co2 is not None and co2 == 0:
+        return True
+    if humidity is not None and humidity == 0:
+        return True
+
+    return False
+
+
 def publish_to_mqtt(topic: str, data: Dict, device_id: str, from_websocket: bool = False):
     """Publiziert Daten nach MQTT mit Logging."""
+    if is_environment_sensor_warmup(data):
+        name = data.get("device_name", device_id[:8])
+        logger.warning(f"Warmup-Daten gefiltert: {name} (CO2/Feuchte = 0)")
+        return
+
     if is_duplicate(device_id, data):
         return
 
