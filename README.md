@@ -26,6 +26,7 @@ Funktioniert mit dem aktuellen IKEA Smart Home System (Matter-basiert, seit 2024
 
 - **WebSocket Event Listener** für Echtzeit-Updates
 - **Periodisches Polling** als Backup (konfigurierbar)
+- **Erreichbarkeitsüberwachung** mit MQTT-Alerts bei Geräteausfällen
 - **Deduplizierung** um redundante Updates zu filtern
 - **Docker-ready** mit Health Check
 
@@ -49,6 +50,28 @@ Der Dirigera Hub liefert Echtzeit-Updates per WebSocket, aber diese enthalten nu
 - **Luftreiniger:** Senden bei Modusänderung, Filterstatus
 - **Fernbedienungen, Steckdosen:** Senden selten oder nie WebSocket-Updates → werden primär über Polling erfasst
 
+**Erreichbarkeitsüberwachung:**
+
+Der Dirigera Hub pflegt pro Gerät ein `is_reachable`-Flag. Bekanntes Problem: Einzelne Sensoren (v.a. ALPSTUGA über Matter/Thread) verlieren sporadisch ihre Verbindung zum Hub — der Hub cached dann die letzten Werte und liefert sie als wären sie aktuell. Das Display des Sensors zeigt dabei weiterhin korrekte Live-Werte, weil es lokal misst.
+
+Die Bridge erkennt das und reagiert:
+
+1. **Beim Polling** wird `is_reachable` jedes Geräts geprüft. Nicht erreichbare Geräte werden **nicht** nach MQTT publiziert, damit keine eingefrorenen/veralteten Werte in InfluxDB landen
+2. **MQTT-Alert** wird bei Statuswechsel an `dirigera/bridge/alert/{device_id}` gepubliziert (retained), z.B.:
+   ```json
+   {
+     "device_id": "9fcc32a3-..._1",
+     "device_name": "ALPSTUGA 1",
+     "event": "unreachable",
+     "message": "ALPSTUGA 1 ist nicht erreichbar. Sensor muss ggf. aus- und wieder eingesteckt werden.",
+     "timestamp": "2026-03-22T07:30:00.000Z"
+   }
+   ```
+3. **Recovery-Versuch** per Matter Identify Cluster (`PUT /v1/devices/{id}/identify`) — der Hub sendet einen Identify-Befehl an den Sensor. Dies läuft in einem eigenen Thread, um das Polling nicht zu blockieren. Bei echtem Thread-Verbindungsabbruch hilft dies nicht — der Sensor muss physisch aus- und wieder eingesteckt werden.
+4. Wenn der Sensor wieder erreichbar ist, wird eine `"event": "reachable"`-Nachricht gesendet und im Log `ONLINE: {name} ist wieder erreichbar` ausgegeben
+
+> **Hintergrund:** Der Dirigera Hub verliert sporadisch (ca. alle paar Wochen) die Thread-Verbindung zu einzelnen Sensoren. Dies ist ein bekanntes Firmware-Problem ([dirigera#113](https://github.com/Leggin/dirigera/issues/113)). Der Sensor selbst funktioniert weiter, aber der Hub bekommt keine Updates mehr und gibt bei API-Abfragen eingefrorene Werte zurück. Bisher gibt es keinen API-Weg, die Verbindung remote wiederherzustellen.
+
 **Deduplizierung:**
 
 Wenn ein Gerät innerhalb von 5 Sekunden mehrfach identische Werte sendet, wird nur das erste Update nach MQTT gepusht.
@@ -64,6 +87,7 @@ Wenn ein Gerät innerhalb von 5 Sekunden mehrfach identische Werte sendet, wird 
 | Luftreiniger (STARKVIND) | `dirigera/purifier/{id}` | fan_mode, motor_state, pm25, filter_alarm |
 | Steckdosen (TRÅDFRI) | `dirigera/outlet/{id}` | is_on, power, current, voltage, energy_total |
 | Fernbedienungen (TRÅDFRI, BILRESA) | `dirigera/controller/{id}` | battery_percentage, is_on |
+| **Bridge Alerts** | `dirigera/bridge/alert/{id}` | device_name, event (unreachable/reachable), message |
 
 Andere Geräte funktionieren vermutlich auch. Matter-Geräte anderer Hersteller werden ebenfalls unterstützt, sofern sie am Dirigera Hub angemeldet sind.
 
@@ -327,6 +351,9 @@ mosquitto_sub -h localhost -t 'dirigera/#' -v
 
 # Nur Sensoren
 mosquitto_sub -h localhost -t 'dirigera/sensor/#' -v
+
+# Bridge Alerts (Geräteausfälle)
+mosquitto_sub -h localhost -t 'dirigera/bridge/alert/#' -v
 ```
 
 ### Bridge Logs
@@ -336,6 +363,21 @@ docker logs dirigera-bridge -f -n 50
 ```
 
 Für Debug-Modus: `LOG_LEVEL=DEBUG` in `.env` setzen und Container neu starten.
+
+### Erreichbarkeits-Logs
+
+Wenn ein Gerät offline geht:
+```
+WARNING - OFFLINE: ALPSTUGA 1 ist nicht erreichbar (is_reachable=False)
+INFO    - [Recovery] Recovery-Versuch: Sende Identify an ALPSTUGA 1...
+INFO    - [Recovery] Identify an ALPSTUGA 1 gesendet (202 Accepted)
+INFO    - Polling: 17 gesendet, 0 übersprungen, 1 offline, 18 Geräte
+```
+
+Wenn ein Gerät wieder online ist (z.B. nach Aus-/Einstecken):
+```
+INFO    - ONLINE: ALPSTUGA 1 ist wieder erreichbar
+```
 
 ---
 

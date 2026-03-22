@@ -15,13 +15,14 @@ Projekt: https://github.com/???/dirigera-mqtt-bridge
 
 import dirigera
 import paho.mqtt.client as mqtt
+import requests as _requests
 import json
 import time
 import os
 import logging
 import threading
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 # =============================================================================
 # Logging
@@ -55,6 +56,7 @@ last_publish_times: Dict[str, datetime] = {}
 last_websocket_update: Dict[str, datetime] = {}
 last_poll_time: Optional[datetime] = None
 device_cache: Dict[str, Any] = {}
+unreachable_devices: Set[str] = set()
 
 
 # =============================================================================
@@ -161,6 +163,71 @@ def is_environment_sensor_warmup(data: Dict) -> bool:
         return True
 
     return False
+
+
+def _publish_alert(device_id: str, name: str, event: str, message: str):
+    """Publiziert eine Alert-Nachricht nach MQTT (retained, pro Gerät)."""
+    try:
+        alert = {
+            "device_id": device_id,
+            "device_name": name,
+            "event": event,
+            "message": message,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+        }
+        mqtt_client.publish(
+            f"{MQTT_BASE_TOPIC}/bridge/alert/{device_id}",
+            json.dumps(alert), retain=True, qos=1,
+        )
+    except Exception as e:
+        logger.error(f"MQTT Alert Fehler: {e}")
+
+
+def check_reachability(device) -> bool:
+    """
+    Prüft is_reachable und handelt bei Statusänderungen.
+    Gibt True zurück wenn das Gerät erreichbar ist.
+    """
+    device_id = device.id
+    reachable = getattr(device, 'is_reachable', True)
+
+    if not reachable and device_id not in unreachable_devices:
+        name = getattr(device.attributes, 'custom_name', device_id[:8])
+        unreachable_devices.add(device_id)
+        logger.warning(f"OFFLINE: {name} ist nicht erreichbar (is_reachable=False)")
+        _publish_alert(device_id, name, "unreachable",
+                       f"{name} ist nicht erreichbar. Sensor muss ggf. aus- und wieder eingesteckt werden.")
+        threading.Thread(
+            target=_try_recover_device, args=(device_id, name),
+            name="Recovery", daemon=True,
+        ).start()
+
+    elif reachable and device_id in unreachable_devices:
+        name = getattr(device.attributes, 'custom_name', device_id[:8])
+        unreachable_devices.discard(device_id)
+        logger.info(f"ONLINE: {name} ist wieder erreichbar")
+        _publish_alert(device_id, name, "reachable",
+                       f"{name} ist wieder erreichbar.")
+
+    return reachable
+
+
+def _try_recover_device(device_id: str, name: str):
+    """Versucht ein Gerät per Identify-Befehl wiederherzustellen (Matter Identify Cluster)."""
+    try:
+        logger.info(f"Recovery-Versuch: Sende Identify an {name}...")
+        r = _requests.put(
+            f"https://{DIRIGERA_IP}:8443/v1/devices/{device_id}/identify",
+            json={"period": 30},
+            headers={"Authorization": f"Bearer {DIRIGERA_TOKEN}"},
+            verify=False, timeout=10,
+        )
+        if r.status_code == 202:
+            logger.info(f"Identify an {name} gesendet (202 Accepted)")
+        else:
+            logger.warning(f"Identify an {name}: HTTP {r.status_code}")
+    except Exception as e:
+        logger.error(f"Identify-Fehler für {name}: {e}")
 
 
 def publish_to_mqtt(topic: str, data: Dict, device_id: str, from_websocket: bool = False):
@@ -346,12 +413,15 @@ def poll_all_devices():
     """Pollt alle Geräte und publiziert nach MQTT."""
     global last_poll_time
     logger.info("Polling-Zyklus gestartet...")
-    sent, skipped = 0, 0
+    sent, skipped, offline = 0, 0, 0
 
     try:
         # Environment Sensors
         for sensor in hub.get_environment_sensors():
             device_cache[sensor.id] = sensor
+            if not check_reachability(sensor):
+                offline += 1
+                continue
             data = extract_environment_sensor_data(sensor)
             if should_poll_send(sensor.id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/sensor/{sensor.id}", data, sensor.id)
@@ -362,6 +432,9 @@ def poll_all_devices():
         # Motion Sensors
         for sensor in hub.get_occupancy_sensors():
             device_cache[sensor.id] = sensor
+            if not check_reachability(sensor):
+                offline += 1
+                continue
             data = extract_motion_sensor_data(sensor)
             if should_poll_send(sensor.id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/motion/{sensor.id}", data, sensor.id)
@@ -372,6 +445,9 @@ def poll_all_devices():
         # Open/Close Sensors
         for sensor in hub.get_open_close_sensors():
             device_cache[sensor.id] = sensor
+            if not check_reachability(sensor):
+                offline += 1
+                continue
             data = extract_open_close_sensor_data(sensor)
             if should_poll_send(sensor.id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/door/{sensor.id}", data, sensor.id)
@@ -382,6 +458,9 @@ def poll_all_devices():
         # Lights
         for light in hub.get_lights():
             device_cache[light.id] = light
+            if not check_reachability(light):
+                offline += 1
+                continue
             data = extract_light_data(light)
             if should_poll_send(light.id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/light/{light.id}", data, light.id)
@@ -392,6 +471,9 @@ def poll_all_devices():
         # Air Purifiers
         for purifier in hub.get_air_purifiers():
             device_cache[purifier.id] = purifier
+            if not check_reachability(purifier):
+                offline += 1
+                continue
             data = extract_air_purifier_data(purifier)
             if should_poll_send(purifier.id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/purifier/{purifier.id}", data, purifier.id)
@@ -402,6 +484,9 @@ def poll_all_devices():
         # Outlets
         for outlet in hub.get_outlets():
             device_cache[outlet.id] = outlet
+            if not check_reachability(outlet):
+                offline += 1
+                continue
             data = extract_outlet_data(outlet)
             if should_poll_send(outlet.id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/outlet/{outlet.id}", data, outlet.id)
@@ -417,6 +502,9 @@ def poll_all_devices():
                 continue
             seen_controllers.add(base_id)
             device_cache[controller.id] = controller
+            if not check_reachability(controller):
+                offline += 1
+                continue
             data = extract_controller_data(controller)
             if should_poll_send(base_id, data):
                 publish_to_mqtt(f"{MQTT_BASE_TOPIC}/controller/{base_id}", data, base_id)
@@ -424,7 +512,11 @@ def poll_all_devices():
             else:
                 skipped += 1
 
-        logger.info(f"Polling: {sent} gesendet, {skipped} übersprungen, {len(device_cache)} Geräte")
+        parts = [f"{sent} gesendet", f"{skipped} übersprungen"]
+        if offline:
+            parts.append(f"{offline} offline")
+        parts.append(f"{len(device_cache)} Geräte")
+        logger.info(f"Polling: {', '.join(parts)}")
 
     except Exception as e:
         logger.error(f"Polling-Fehler: {e}")
