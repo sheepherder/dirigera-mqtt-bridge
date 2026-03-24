@@ -8,8 +8,7 @@ RUN pip install --no-cache-dir \
     paho-mqtt>=2.0.0 \
     websocket-client>=1.6.0
 
-COPY bridge.py /app/bridge.py
-COPY alpstuga-display.py /app/alpstuga-display.py
+COPY bridge.py alpstuga-display.py firmware-check.py /app/
 
 # Health Check (prüft ob Hauptprozess läuft)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \

@@ -1,0 +1,8 @@
+[Unit]
+Description=IKEA DIRIGERA Firmware Version Check
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec dirigera-bridge python /app/firmware-check.py

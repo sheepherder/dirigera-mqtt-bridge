@@ -28,6 +28,7 @@ Funktioniert mit dem aktuellen IKEA Smart Home System (Matter-basiert, seit 2024
 - **Periodisches Polling** als Backup (konfigurierbar)
 - **Erreichbarkeitsüberwachung** mit MQTT-Alerts bei Geräteausfällen
 - **Deduplizierung** um redundante Updates zu filtern
+- **Firmware-Update-Notifier** per ntfy Push-Notification
 - **Docker-ready** mit Health Check
 
 > **Hinweis:** Diese Bridge ist aktuell **nur lesend** - Gerätedaten werden nach MQTT publiziert, Steuerung (Lampen schalten, etc.) ist nicht implementiert.
@@ -137,6 +138,8 @@ Alle Einstellungen via Umgebungsvariablen:
 | `POLL_INTERVAL` | 300 | Polling-Intervall in Sekunden |
 | `DEDUP_WINDOW` | 5 | Zeitfenster für Deduplizierung in Sekunden |
 | `LOG_LEVEL` | INFO | Log-Level (DEBUG, INFO, WARNING, ERROR) |
+| `NTFY_TOPIC` | - | ntfy Topic für Firmware-Notifications (Pflicht für Firmware-Check) |
+| `NTFY_SERVER` | https://ntfy.sh | ntfy Server URL |
 
 ## MQTT Nachrichtenformat
 
@@ -377,6 +380,54 @@ INFO    - Polling: 17 gesendet, 0 übersprungen, 1 offline, 18 Geräte
 Wenn ein Gerät wieder online ist (z.B. nach Aus-/Einstecken):
 ```
 INFO    - ONLINE: ALPSTUGA 1 ist wieder erreichbar
+```
+
+---
+
+## Firmware-Update-Notifier
+
+Überwacht die Firmware-Versionen aller Geräte im DIRIGERA Hub (inkl. Hub selbst) und sendet Push-Notifications per [ntfy](https://ntfy.sh) bei Änderungen. IKEA liefert Firmware-Updates silent über die App aus — ohne Changelog und ohne Benachrichtigung.
+
+### Einrichtung
+
+1. ntfy-App auf dem Handy installieren ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) / [iOS](https://apps.apple.com/app/ntfy/id1625396347))
+2. `NTFY_TOPIC` in `.env` setzen (z.B. `mein_prefix_dirigera_fw` — der Topicname ist gleichzeitig das "Passwort")
+3. In der ntfy-App den Topic subscriben
+4. Container neu bauen: `docker-compose build && docker-compose up -d`
+
+### Nutzung
+
+```bash
+# Manueller Test (dry-run, keine Notification)
+./firmware-check.sh --dry-run
+
+# Manueller Lauf (sendet Notification bei Änderungen)
+./firmware-check.sh
+
+# systemd-Timer installieren (prüft alle 6h automatisch)
+sudo ./install-dirigera-firmware-check.sh
+
+# Timer-Status prüfen
+systemctl list-timers dirigera-*
+
+# Timer deinstallieren
+sudo ./uninstall-dirigera-firmware-check.sh
+```
+
+### Was wird überwacht?
+
+- Firmware-Version aller Geräte (Hub, Sensoren, Lampen, Fernbedienungen, ...)
+- Neue Geräte (z.B. nach Pairing)
+- Entfernte Geräte
+
+Beim ersten Lauf wird eine Übersicht aller Geräte und ihrer Versionen gesendet. Danach nur noch bei Änderungen.
+
+### Beispiel-Notification
+
+```
+DIRIGERA Firmware Update
+ALPSTUGA 1: 1.0.15 → 1.0.16
+Zuhause: 2.934.0 → 2.935.0
 ```
 
 ---
